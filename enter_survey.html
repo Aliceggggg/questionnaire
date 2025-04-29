@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Конструктор Опросов | Список опросов</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .main_content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+        .survey_info {
+            padding: 10px;
+            margin: 20px;
+            border-radius: 15px;
+            border: 2px solid rgb(220, 220, 220); 
+        }
+        #survey_enter {
+            margin-top: 10px;
+            padding: 10px;
+            border: none;
+            border-radius: 20px;
+            font-size: 20px;
+            width: 100%;
+            background-color: rgb(167, 78, 205);
+            color: white;
+        }
+        #survey_username {
+            border: 2px solid rgb(220, 220, 220);
+            border-radius: 20px;
+            padding-top: 10px;
+            padding-bottom: 10px;
+            font-size: 20px;
+            text-align: center;
+        }
+        #survey_username:focus::placeholder {
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="main_content">
+        <h1>Прохождение</h1>
+        <fieldset class="survey_info">
+            <legend id="survey_name">Название Опроса</legend>
+            <input type="text" id="survey_username" placeholder="Имя Проходящего">
+            <br>
+            <button id="survey_enter">Пройти</button>
+        </fieldset>
+    </div>
+
+</body>
+</html>

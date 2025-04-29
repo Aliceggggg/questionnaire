@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Конструктор Опросов | Создать Новый</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI';
+        }
+
+        h1 {
+            font-size: 40px;
+        }
+
+        .main_content {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            width: 750px;
+        }
+
+        @keyframes add_animation {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        .survey_question_block {
+            margin: 20px;
+            padding: 10px;
+            border: 2px solid lightgray;
+            border-radius: 25px;
+        }
+
+        .sname,
+        .sdesc {
+            margin: 10px;
+        }
+
+        .survey_answer_field {
+            margin: 5px;
+        }
+
+        .survey_answer_field,
+        .survey_question_name {
+            width: 80%;
+        }
+
+        textarea,
+        input,
+        button {
+            border-radius: 25px;
+            padding: 15px;
+            font-size: 20px;
+            resize: none;
+        }
+
+        textarea,
+        input {
+            border: 2px solid lightgray;
+        }
+
+        label {
+            font-size: 20px;
+        }
+
+        button {
+            border: 2px solid rgb(167, 78, 205);
+            background-color: rgb(167, 78, 205);
+            color: white;
+            margin: 10px;
+        }
+
+        #survey_description {
+            width: 60%;
+        }
+
+        #send_form:disabled,
+        #remove_question:disabled,
+        .remove_answer:disabled {
+            background-color: white;
+            color: gray;
+            border: 2px solid lightgray;
+        }
+
+        #send_form,
+        #remove_question,
+        .remove_answer {
+            transition: 0.2s;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main_content">
+        <h1>Создание нового опроса</h1>
+
+        <form method="post" id="main_form">
+            <div class="sname">
+                <label for="survey_name" required>Название опроса</label>
+                <br>
+                <input id="survey_name">
+            </div>
+
+            <div class="sdesc">
+                <label for="survey_description">Описание опроса</label>
+                <br>
+                <textarea id="survey_description"></textarea>
+            </div>
+
+            <template id="survey_question_block_template">
+                <div class="survey_question_block">
+                    <br>
+                    <textarea class="survey_question_name" placeholder="Вопрос"></textarea>
+                    <br>
+                    <br>
+                    <label class="answers_deco_text" style="display: none;">Варианты ответа:</label>
+                    <button type="button" class="add_answer" onclick="add_answer(this)">Добавить вариант
+                        ответа</button>
+                    <button type="button" class="remove_answer" onclick="remove_answer(this)" disabled>Удалить вариант
+                        ответа</button>
+                </div>
+            </template>
+
+            <template id="survey_answer_template">
+                <div class="survey_answer">
+                    <input class="survey_answer_field" placeholder="Ответ">
+                </div>
+            </template>
+        </form>
+
+        <button id="add_question" onclick="add_question()">Добавить вопрос</button>
+        <button id="remove_question" onclick="remove_question()" disabled>Удалить вопрос</button>
+        <button id="send_form" onclick="send_form()" form="main_form" type="sumbit" disabled>Отправить</button>
+    </div>
+    <script>
+        const form = document.querySelector("#main_form");
+        const question_block_template = document.querySelector("#survey_question_block_template");
+        const answer_template = document.querySelector("#survey_answer_template");
+        function add_question() {
+            const question_block = question_block_template.cloneNode(true).content.querySelector(".survey_question_block");
+            form.appendChild(question_block);
+            question_block.style["animation"] = "add_animation 0.3s ease-out forwards";
+            document.querySelector("#remove_question").disabled = false;
+            document.querySelector("#send_form").disabled = false;
+        }
+
+        function remove_question() {
+            let all_question_blocks = form.querySelectorAll(".survey_question_block");
+            form.removeChild(all_question_blocks[all_question_blocks.length - 1]);
+            all_question_blocks = form.querySelectorAll(".survey_question_block");
+            if (all_question_blocks.length == 0) {
+                document.querySelector("#remove_question").disabled = true;
+                document.querySelector("#send_form").disabled = true;
+            }
+        }
+
+        function add_answer(add_button) {
+            const answer = answer_template.cloneNode(true).content.querySelector(".survey_answer");
+            add_button.parentNode.insertBefore(answer, add_button);
+            answer.style["animation"] = "add_animation 0.3s ease-out forwards";
+
+            const current_block = add_button.closest(".survey_question_block");
+            current_block.querySelector(".answers_deco_text").style.display = "block";
+            current_block.querySelector(".remove_answer").disabled = false;
+        }
+
+        function remove_answer(remove_button) {
+            const current_block = remove_button.closest(".survey_question_block");
+            const answers = current_block.querySelectorAll(".survey_answer");
+
+            if (answers.length > 0) {
+                answers[answers.length - 1].remove();
+            }
+
+            const remainingAnswers = current_block.querySelectorAll(".survey_answer");
+            if (remainingAnswers.length === 0) {
+                remove_button.disabled = true;
+                current_block.querySelector(".answers_deco_text").style.display = "none";
+            }
+        }
+
+        function send_form() {
+
+        }
+    </script>
+</body>
+
+</html>
