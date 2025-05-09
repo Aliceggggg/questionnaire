@@ -1,0 +1,442 @@
+import os
+from datetime import datetime
+from flask import (
+    Flask,
+    render_template,
+    render_template_string,
+    request,
+    redirect,
+    url_for,
+    abort,
+    Response
+)
+from flask_sqlalchemy import SQLAlchemy
+import matplotlib.pyplot as plt
+import numpy as np
+import io
+import sqlite3
+from sqlalchemy.orm import joinedload
+
+# Импортируем необходимые функции для работы с пользователями
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+
+app = Flask(__name__, instance_relative_config=True)
+app.config['SECRET_KEY'] = 'ваш_секретный_ключ'  # Обязательно установите собственный секретный ключ
+
+try:
+    os.makedirs(app.instance_path)
+except OSError:
+    pass
+
+DB_PATH = os.path.join(app.instance_path, 'survey.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+db = SQLAlchemy(app)
+
+# Настройка Flask-Login
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
+
+
+# -----------------------------
+# Модели БД
+# -----------------------------
+
+# Ассоциация для связи группы и пользователей (многие ко многим)
+group_members = db.Table('group_members',
+    db.Column('group_id', db.Integer, db.ForeignKey('group.id'), primary_key=True),
+    db.Column('user_id', db.Integer, db.ForeignKey('user.id'), primary_key=True)
+)
+
+class Group(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    creator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    # Связь с создателем (пользователем)
+    creator = db.relationship('User', backref='created_groups')
+    # Связь с участниками группы через вспомогательную таблицу
+    members = db.relationship('User', secondary=group_members, backref=db.backref('groups', lazy='dynamic'))
+
+
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(150), unique=True, nullable=False)  # Используем email для входа
+    username = db.Column(db.String(150), nullable=False)  # Имя необязательно
+    password_hash = db.Column(db.String(200), nullable=False)
+    
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+    
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+
+# Вспомогательная таблица для связи Survey и Group (многие ко многим)
+survey_groups = db.Table('survey_groups',
+    db.Column('survey_id', db.Integer, db.ForeignKey('survey.id'), primary_key=True),
+    db.Column('group_id', db.Integer, db.ForeignKey('group.id'), primary_key=True)
+)
+
+class Survey(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    creator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    creator = db.relationship('User', backref='surveys')
+    questions = db.relationship('Question', backref='survey', cascade="all, delete", lazy=True)
+    responses = db.relationship('SurveyResponse', backref='survey', cascade="all, delete", lazy=True)
+    # Связь с группами, которым доступен этот опрос
+    groups = db.relationship('Group', secondary=survey_groups, backref=db.backref('surveys', lazy='dynamic'))
+
+
+class Question(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    text = db.Column(db.String(500), nullable=False)
+    allow_comments = db.Column(db.Boolean, default=False)
+    multiple_selection = db.Column(db.Boolean, default=False)
+    survey_id = db.Column(db.Integer, db.ForeignKey('survey.id'), nullable=False)
+    options = db.relationship('Option', backref='question', cascade="all, delete", lazy=True)
+
+
+class Option(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    text = db.Column(db.String(300), nullable=False)
+    question_id = db.Column(db.Integer, db.ForeignKey('question.id'), nullable=False)
+
+
+class SurveyResponse(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    survey_id = db.Column(db.Integer, db.ForeignKey('survey.id'), nullable=False)
+    full_name = db.Column(db.String(200), nullable=False)  # Теперь заполняется из профиля пользователя
+    email = db.Column(db.String(100), nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    answers = db.relationship('Answer', backref='survey_response', cascade="all, delete", lazy=True)
+
+
+class Answer(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    question_id = db.Column(db.Integer, db.ForeignKey('question.id'), nullable=False)
+    survey_response_id = db.Column(db.Integer, db.ForeignKey('survey_response.id'), nullable=False)
+    selected_options = db.Column(db.String(500), nullable=True)  # хранит ИД выбранных вариантов через запятую, например "1,3"
+    comment = db.Column(db.Text, nullable=True)
+    question = db.relationship('Question', backref='answers')
+
+
+# -----------------------------
+# Маршруты для управления пользователями
+# -----------------------------
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form.get('username')  # Запрашиваем имя пользователя
+        email = request.form.get('email')  # Запрашиваем email
+        password = request.form.get('password')
+
+        # Проверяем, что имя и email не пустые
+        if not username or not email:
+            return "Имя пользователя и email обязательны."
+
+        # Проверяем, что email и имя уникальны
+        if User.query.filter((User.username == username) | (User.email == email)).first():
+            return "Пользователь с таким именем или email уже существует."
+
+        # Создаём нового пользователя
+        user = User(username=username, email=email)
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+
+        # Авторизуем пользователя сразу после регистрации
+        login_user(user)
+        return redirect(url_for('survey_index'))
+
+    return render_template('register.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        email = request.form.get('email')  # Запрашиваем email
+        password = request.form.get('password')
+        user = User.query.filter_by(email=email).first()  # Ищем пользователя по email
+        if user and user.check_password(password):
+            login_user(user)
+            return redirect(url_for('survey_index'))
+        else:
+            return "Неверный email или пароль."
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('survey_index'))
+
+
+# -----------------------------
+# Маршруты для опросов
+# -----------------------------
+
+@app.route('/')
+@login_required
+def survey_index():
+    # Опросы, созданные текущим пользователем
+    created_surveys = Survey.query.filter_by(creator_id=current_user.id).all()
+    
+    # Опросы, назначенные текущему пользователю (через наличие связи с группой, в которой он состоит)
+    user_group_ids = [group.id for group in current_user.groups]
+    if user_group_ids:
+        assigned_surveys = (Survey.query
+                            .join(Survey.groups)
+                            .filter(
+                                Group.id.in_(user_group_ids),
+                                Survey.creator_id != current_user.id
+                            )
+                            .distinct()
+                            .all())
+    else:
+        assigned_surveys = []
+    
+    return render_template('index.html', 
+                           created_surveys=created_surveys,
+                           assigned_surveys=assigned_surveys)
+
+
+from flask_login import login_required, current_user
+
+
+@app.route('/group/new', methods=['GET', 'POST'])
+@login_required
+def create_group():
+    if request.method == 'POST':
+        group_name = request.form.get('group_name').strip()
+        if not group_name:
+            return "Ошибка: Необходимо указать название группы.", 400
+
+        # Проверяем, существует ли уже группа с таким именем
+        existing_group = Group.query.filter_by(name=group_name).first()
+        if existing_group:
+            return f"Ошибка: Группа с именем '{group_name}' уже существует.", 400
+
+        selected_user_ids = request.form.getlist('user_ids')
+        
+        group = Group(name=group_name, creator=current_user)
+        for user_id in selected_user_ids:
+            user = User.query.get(user_id)
+            if user and user not in group.members:
+                group.members.append(user)
+        db.session.add(group)
+        db.session.commit()
+        return redirect(url_for('survey_index'))
+    
+    # При GET-запросе выводим список всех зарегистрированных пользователей
+    users = User.query.all()
+    return render_template('group_editor.html', users=users)
+
+
+@app.route('/survey/new', methods=['GET', 'POST'])
+@login_required
+def create_survey():
+    if request.method == 'POST':
+        title = request.form.get("title")
+        if not title:
+            return "Ошибка: необходимо указать название опроса", 400
+
+        # Создаем опрос и задаем автора
+        survey = Survey(title=title, creator=current_user)
+        db.session.add(survey)
+        
+        # Обрабатываем вопросы (пример обработки вопроса и вариантов ответов)
+        i = 0
+        while f"questions[{i}][text]" in request.form:
+            q_text = request.form.get(f"questions[{i}][text]")
+            allow_comments = bool(request.form.get(f"questions[{i}][allow_comments]"))
+            multiple_selection = bool(request.form.get(f"questions[{i}][multiple_selection]"))
+            options = request.form.getlist(f"questions[{i}][options][]")
+            
+            question = Question(
+                text=q_text,
+                allow_comments=allow_comments,
+                multiple_selection=multiple_selection,
+                survey=survey
+            )
+            db.session.add(question)
+            for opt_text in options:
+                if opt_text.strip():
+                    option = Option(text=opt_text, question=question)
+                    db.session.add(option)
+            i += 1
+
+        # Обрабатываем выбранные группы
+        group_ids = request.form.getlist("survey_groups")
+        # Если список group_ids пуст, то к опросу не привязывается ни одна группа:
+        for group_id in group_ids:
+            group = Group.query.get(group_id)
+            if group:
+                survey.groups.append(group)
+        
+        db.session.commit()
+        return redirect(url_for('survey_index'))
+    
+    # При GET-запросе передаем в шаблон список всех групп для выбора
+    groups = Group.query.all()
+    return render_template('survey_editor.html', groups=groups)
+
+
+@app.route('/survey/<int:survey_id>/take', methods=['GET', 'POST'])
+@login_required
+def take_survey(survey_id):
+    survey = Survey.query.get_or_404(survey_id)
+    if request.method == 'POST':
+        # Теперь поля ФИО и Email не запрашиваются у респондента, а берутся из профиля
+        full_name = current_user.username
+        email = current_user.email
+        response = SurveyResponse(survey_id=survey.id, full_name=full_name, email=email)
+        db.session.add(response)
+        # Обработка ответов для каждого вопроса
+        for question in survey.questions:
+            key = f'question_{question.id}_options'
+            if question.multiple_selection:
+                selected_options = request.form.getlist(key)
+            else:
+                selected_options = [request.form.get(key)]
+            selected_options = [opt for opt in selected_options if opt]
+            comment = request.form.get(f'question_{question.id}_comment')
+            answer = Answer(
+                question_id=question.id,
+                survey_response=response,
+                selected_options=",".join(selected_options) if selected_options else None,
+                comment=comment if comment else None
+            )
+            db.session.add(answer)
+        db.session.commit()
+        return redirect(url_for('thank_you'))
+    
+    return render_template('survey_take.html', survey=survey)
+
+
+@app.route('/thank-you')
+def thank_you():
+    return "<h1>Спасибо за участие в опросе!</h1>"
+
+
+@app.route('/results')
+def results():
+    return render_template_string("""
+    <!DOCTYPE html>
+    <html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <title>Результаты опроса</title>
+        <style>
+            .small-chart { max-width: 600px; width: 100%; height: auto; }
+        </style>
+    </head>
+    <body>
+        <h1>Результаты опроса</h1>
+        <img src="/chart.png" class="small-chart" alt="Графики">
+    </body>
+    </html>
+    """)
+
+
+@app.route('/survey/<int:survey_id>/results')
+def view_results(survey_id):
+    survey = Survey.query.get_or_404(survey_id)
+    responses = SurveyResponse.query.filter_by(survey_id=survey.id).options(
+        joinedload(SurveyResponse.answers).joinedload(Answer.question)
+    ).all()
+    return render_template('view_results.html', survey=survey, responses=responses)
+
+# -----------------------------
+# Маршруты для визуализации результатов
+# -----------------------------
+
+def fetch_data():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, text FROM question ORDER BY id;")
+    questions = cursor.fetchall()  # [(id, text), ...]
+    labels = [text for _, text in questions]
+    values = []
+    
+    for qid, _ in questions:
+        cursor.execute("SELECT selected_options FROM answer WHERE question_id = ?", (qid,))
+        rows = cursor.fetchall()
+        nums = []
+        for (sel,) in rows:
+            try:
+                nums.append(float(sel))
+            except (ValueError, TypeError):
+                continue
+        avg = sum(nums) / len(nums) if nums else 0
+        values.append(avg)
+    
+    conn.close()
+    return labels, values
+
+def create_chart(labels, values):
+    fig, axs = plt.subplots(1, 3, figsize=(9, 3))
+    
+    colors = plt.cm.coolwarm(np.linspace(0, 1, len(labels)))
+    axs[0].bar(labels, values, color=colors)
+    axs[0].set_title('Столбчатая диаграмма', fontsize=12, fontweight='bold')
+    axs[0].set_xlabel('Вопросы', fontsize=10)
+    axs[0].set_ylabel('Средний балл (1–10)', fontsize=10)
+    axs[0].set_ylim(0, 10)
+    for i, value in enumerate(values):
+        axs[0].text(i, value + 0.2, f'{value:.2f}', ha='center', fontsize=10)
+    
+    num_vars = len(labels)
+    angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
+    vals = values + values[:1]
+    angs = angles + angles[:1]
+    
+    # Паутинная диаграмма
+    ax1 = plt.subplot(1, 3, 2, projection='polar')
+    ax1.fill(angs, vals, color='lightblue', alpha=0.6)
+    ax1.plot(angs, vals, color='blue', linewidth=1.5)
+    ax1.set_yticklabels([])
+    ax1.set_xticks(angles)
+    ax1.set_xticklabels(labels, fontsize=8)
+    ax1.set_title('Паутинная диаграмма', fontsize=12)
+    ax1.grid(True, linestyle='--', alpha=0.5)
+    
+    # Радиальная диаграмма
+    ax2 = plt.subplot(1, 3, 3, projection='polar')
+    ax2.plot(angs, vals, linewidth=2)
+    ax2.fill(angs, vals, alpha=0.3)
+    ax2.set_yticklabels([])
+    ax2.set_xticks(angles)
+    ax2.set_xticklabels(labels, fontsize=8)
+    ax2.set_title('Радиальная диаграмма', fontsize=12)
+    ax2.grid(True, linestyle='--', alpha=0.5)
+    
+    plt.tight_layout()
+    return fig
+
+@app.route('/chart.png')
+def chart_png():
+    labels, values = fetch_data()
+    fig = create_chart(labels, values)
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=300)
+    plt.close(fig)
+    buf.seek(0)
+    return Response(buf.getvalue(), mimetype='image/png')
+
+
+# -----------------------------
+# Запуск приложения
+# -----------------------------
+
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+    app.run(debug=True, host='0.0.0.0', port=5000)
