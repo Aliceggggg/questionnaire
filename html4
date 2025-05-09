@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Пройти опрос: {{ survey.title }}</title>
+    <style>
+         body { font-family: Arial, sans-serif; margin: 20px; }
+         .question { margin-bottom: 20px; }
+         .option { margin-left: 20px; }
+         .required-fields {
+             margin-bottom: 20px;
+             padding: 10px;
+             border: 1px solid #ccc;
+             background-color: #f9f9f9;
+         }
+         .required-fields label {
+             display: block;
+             margin-bottom: 5px;
+         }
+         .required-fields input {
+             width: 300px;
+             padding: 5px;
+         }
+    </style>
+</head>
+<body>
+    <h1>{{ survey.title }}</h1>
+    <form method="POST">
+         <!-- Обязательные поля -->
+         <div class="required-fields">
+             <h3>Ваши данные</h3>
+             <label for="full_name">ФИО:</label>
+             <input type="text" id="full_name" name="full_name" required>
+             
+             <label for="email">Email:</label>
+             <input type="email" id="email" name="email" required>
+         </div>
+         
+         <!-- Вопросы -->
+         {% for question in survey.questions %}
+           <div class="question">
+               <p><strong>{{ question.text }}</strong></p>
+               {% if question.multiple_selection %}
+                   {% for option in question.options %}
+                       <div class="option">
+                           <input type="checkbox" name="question_{{ question.id }}_options" value="{{ option.id }}">
+                           <label>{{ option.text }}</label>
+                       </div>
+                   {% endfor %}
+               {% else %}
+                   {% for option in question.options %}
+                       <div class="option">
+                           <input type="radio" name="question_{{ question.id }}_options" value="{{ option.id }}">
+                           <label>{{ option.text }}</label>
+                       </div>
+                   {% endfor %}
+               {% endif %}
+               {% if question.allow_comments %}
+                   <div>
+                       <label>Комментарий:</label>
+                       <input type="text" name="question_{{ question.id }}_comment">
+                   </div>
+               {% endif %}
+           </div>
+         {% endfor %}
+         <button type="submit">Завершить опрос</button>
+    </form>
+</body>
+</html>
