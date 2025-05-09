@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Список опросов</title>
+</head>
+<body>
+    <h1>Список опросов</h1>
+    <a href="/create_poll">
+        <button>Создать новый опрос</button>
+    </a>
+    <ul>
+        {% for poll in polls %}
+            <li>
+                <a href="/poll/{{ poll['ID'] }}">{{ poll['Название'] }}</a> 
+                - {{ poll['Описание'] }}
+            </li>
+        {% else %}
+            <li>Опросы не найдены.</li>
+        {% endfor %}
+    </ul>
+</body>
+</html>
