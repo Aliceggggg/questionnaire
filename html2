@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Создать новый опрос</title>
+</head>
+<body>
+    <h1>Создание нового опроса</h1>
+    <form method="POST">
+        <label for="poll_name">Название опроса:</label><br>
+        <input type="text" id="poll_name" name="poll_name" required><br><br>
+
+        <label for="poll_description">Описание опроса:</label><br>
+        <textarea id="poll_description" name="poll_description" required></textarea><br><br>
+
+        <button type="submit">Создать опрос</button>
+    </form>
+</body>
+</html>
