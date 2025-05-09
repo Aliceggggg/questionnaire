@@ -1,0 +1,76 @@
+from flask import Flask, render_template, request, redirect, url_for
+import sqlite3
+
+app = Flask(__name__)
+
+# Функция подключения к базе данных
+def get_db_connection():
+    conn = sqlite3.connect('company_surveys.db')
+    conn.row_factory = sqlite3.Row  # Чтобы получать данные как словари
+    return conn
+
+# Главная страница с кнопкой для создания опроса
+@app.route('/')
+def index():
+    conn = get_db_connection()
+    polls = conn.execute('SELECT * FROM polls').fetchall()  # Получаем все опросы
+    conn.close()
+    return render_template('index.html', polls=polls)
+
+# Страница для создания нового опроса
+@app.route('/create_poll', methods=['GET', 'POST'])
+def create_poll():
+    if request.method == 'POST':
+        # Получаем данные из формы
+        poll_name = request.form['poll_name']
+        poll_description = request.form['poll_description']
+        
+        # Сохраняем данные о новом опросе в базе данных
+        conn = get_db_connection()
+        conn.execute('INSERT INTO polls (Название, Описание, дата) VALUES (?, ?, ?)', 
+                     (poll_name, poll_description, '2025-04-13'))  # Указываем текущую дату
+        conn.commit()
+        
+        # Получаем ID последнего добавленного опроса
+        poll_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+        conn.close()
+        
+        # Перенаправляем на страницу создания вопросов для этого опроса
+        return redirect(url_for('create_questions', poll_id=poll_id))
+    
+    return render_template('create_poll.html')
+
+
+# Страница для создания вопросов
+@app.route('/create_questions/<int:poll_id>', methods=['GET', 'POST'])
+def create_questions(poll_id):
+    if request.method == 'POST':
+        # Получаем данные из формы
+        question_text = request.form['question_text']
+        
+        # Сохраняем данные о вопросе в базе данных
+        conn = get_db_connection()
+        conn.execute('INSERT INTO questions (poll_id, question_text) VALUES (?, ?)', 
+                     (poll_id, question_text))
+        conn.commit()
+
+        # Получаем ID последнего добавленного вопроса
+        question_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+        
+        # Сохраняем варианты ответа для вопроса
+        answer_1 = request.form['answer_1']
+        answer_2 = request.form['answer_2']
+        conn.execute('INSERT INTO answers (question_id, answer_text) VALUES (?, ?)', 
+                     (question_id, answer_1))
+        conn.execute('INSERT INTO answers (question_id, answer_text) VALUES (?, ?)', 
+                     (question_id, answer_2))
+        conn.commit()
+        
+        conn.close()
+        
+        return redirect(url_for('index'))  # Перенаправляем обратно на главную страницу
+
+    return render_template('create_questions.html', poll_id=poll_id)
+
+if __name__ == "__main__":
+    app.run(debug=True)
