@@ -1,91 +1,89 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <title>Создание опроса</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    .question-block {
-      border: 1px solid #ccc; 
-      margin-bottom: 15px; 
-      padding: 10px;
-    }
-    .option { margin-bottom: 5px; }
-  </style>
+    <meta charset="UTF-8">
+    <title>Создание опроса</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .question-block {
+            border: 1px solid #ccc;
+            margin-bottom: 15px;
+            padding: 10px;
+        }
+        .option { margin-bottom: 5px; }
+    </style>
 </head>
 <body>
-  <h1>Создание нового опроса</h1>
-  <form method="POST">
-    <div>
-      <label for="title">Название опроса:</label>
-      <input type="text" id="title" name="title" required>
-    </div>
-    <br>
-    <div id="questions_container">
-      <!-- Здесь будут динамически добавляться блоки вопросов -->
-    </div>
-    <button type="button" onclick="addQuestion()">Добавить вопрос</button>
-    <br><br>
-    <input type="submit" value="Создать опрос">
-  </form>
-
-  <!-- Шаблон вопроса -->
-  <template id="question_template">
-    <div class="question-block" data-index="__index__">
-      <h3>Вопрос __number__</h3>
-      <div>
-        <label>Текст вопроса:</label>
-        <input type="text" name="questions[__index__][text]" required>
-      </div>
-      <div>
-        <input type="checkbox" name="questions[__index__][allow_comments]" value="1">
-        <label>Разрешить комментарии</label>
-      </div>
-      <div>
-        <input type="checkbox" name="questions[__index__][multiple_selection]" value="1">
-        <label>Разрешить выбор нескольких ответов</label>
-      </div>
-      <div class="options">
-        <label>Варианты ответа:</label>
-        <div class="option">
-          <input type="text" name="questions[__index__][options][]" placeholder="Вариант 1" required>
+    <h1>Создание нового опроса</h1>
+    <form method="POST">
+        <div>
+            <label for="title">Название опроса:</label>
+            <input type="text" id="title" name="title" required>
         </div>
-        <div class="option">
-          <input type="text" name="questions[__index__][options][]" placeholder="Вариант 2" required>
+        <br>
+        <div id="questions_container">
+            <!-- Здесь будут добавляться блоки вопросов -->
         </div>
-      </div>
-      <button type="button" onclick="addOption(this)">Добавить вариант ответа</button>
-      <button type="button" onclick="removeQuestion(this)">Удалить вопрос</button>
-    </div>
-  </template>
+        <button type="button" onclick="addQuestion()">Добавить вопрос</button>
+        <br><br>
+        <input type="submit" value="Создать опрос">
+    </form>
 
-  <script>
-    let questionCount = 0;
-    function addQuestion() {
-      const template = document.getElementById("question_template").innerHTML;
-      const newHtml = template.replace(/__index__/g, questionCount).replace(/__number__/g, questionCount + 1);
-      const container = document.getElementById("questions_container");
-      const wrapper = document.createElement("div");
-      wrapper.innerHTML = newHtml;
-      container.appendChild(wrapper.firstElementChild);
-      questionCount++;
-    }
+    <!-- Шаблон блока вопроса -->
+    <template id="question_template">
+        <div class="question-block" data-index="__index__">
+            <h3>Вопрос __number__</h3>
+            <div>
+                <label>Текст вопроса:</label>
+                <input type="text" name="questions[__index__][text]" required>
+            </div>
+            <div>
+                <input type="checkbox" name="questions[__index__][allow_comments]" value="1">
+                <label>Разрешить комментарии</label>
+            </div>
+            <div>
+                <input type="checkbox" name="questions[__index__][multiple_selection]" value="1">
+                <label>Разрешить выбор нескольких ответов</label>
+            </div>
+            <div class="options">
+                <label>Варианты ответа:</label>
+                <div class="option">
+                    <input type="text" name="questions[__index__][options][]" placeholder="Вариант 1" required>
+                </div>
+                <div class="option">
+                    <input type="text" name="questions[__index__][options][]" placeholder="Вариант 2" required>
+                </div>
+            </div>
+            <button type="button" onclick="addOption(this)">Добавить вариант ответа</button>
+            <button type="button" onclick="removeQuestion(this)">Удалить вопрос</button>
+        </div>
+    </template>
 
-    function addOption(button) {
-      const questionBlock = button.closest(".question-block");
-      const optionsDiv = questionBlock.querySelector(".options");
-      const index = questionBlock.getAttribute("data-index");
-      const optionCount = optionsDiv.querySelectorAll(".option").length + 1;
-      const newOptionDiv = document.createElement("div");
-      newOptionDiv.className = "option";
-      newOptionDiv.innerHTML = `<input type="text" name="questions[${index}][options][]" placeholder="Вариант ${optionCount}" required>`;
-      optionsDiv.appendChild(newOptionDiv);
-    }
-
-    function removeQuestion(button) {
-      const questionBlock = button.closest(".question-block");
-      questionBlock.remove();
-    }
-  </script>
+    <script>
+        let questionCount = 0;
+        function addQuestion() {
+            const template = document.getElementById("question_template").innerHTML;
+            const newHtml = template.replace(/__index__/g, questionCount).replace(/__number__/g, questionCount + 1);
+            const container = document.getElementById("questions_container");
+            const wrapper = document.createElement("div");
+            wrapper.innerHTML = newHtml;
+            container.appendChild(wrapper.firstElementChild);
+            questionCount++;
+        }
+        function addOption(button) {
+            const questionBlock = button.closest(".question-block");
+            const optionsDiv = questionBlock.querySelector(".options");
+            const index = questionBlock.getAttribute("data-index");
+            const optionCount = optionsDiv.querySelectorAll(".option").length + 1;
+            const newOptionDiv = document.createElement("div");
+            newOptionDiv.className = "option";
+            newOptionDiv.innerHTML = `<input type="text" name="questions[${index}][options][]" placeholder="Вариант ${optionCount}" required>`;
+            optionsDiv.appendChild(newOptionDiv);
+        }
+        function removeQuestion(button) {
+            const questionBlock = button.closest(".question-block");
+            questionBlock.remove();
+        }
+    </script>
 </body>
 </html>
