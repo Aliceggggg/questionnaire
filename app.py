@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import io
 import sqlite3
+from sqlalchemy.orm import joinedload  # для предварительной загрузки связей, если понадобится
 
 # ---------------------------------------------------------------------
 # Инициализация приложения и настройка БД
@@ -73,6 +74,8 @@ class Answer(db.Model):
     # Храним выбранные варианты через запятую (например, "1,3")
     selected_options = db.Column(db.String(500), nullable=True)
     comment = db.Column(db.Text, nullable=True)
+    # Добавляем отношение к модели Question
+    question = db.relationship('Question', backref='answers')
 
 # ---------------------------------------------------------------------
 # Маршруты для управления опросами
@@ -166,10 +169,6 @@ def thank_you():
     """Страница благодарности после прохождения опроса."""
     return "<h1>Спасибо за участие в опросе!</h1>"
 
-# ---------------------------------------------------------------------
-# Маршруты для визуализации результатов
-# ---------------------------------------------------------------------
-
 @app.route('/results')
 def results():
     """Страница с графиками, отображающая результаты опроса."""
@@ -190,11 +189,24 @@ def results():
     </html>
     """)
 
+@app.route('/survey/<int:survey_id>/results')
+def view_results(survey_id):
+    """Страница просмотра результатов опроса."""
+    survey = Survey.query.get_or_404(survey_id)
+    responses = SurveyResponse.query.filter_by(survey_id=survey.id).options(
+        joinedload(SurveyResponse.answers).joinedload(Answer.question)
+    ).all()
+    return render_template('view_results.html', survey=survey, responses=responses)
+
+# ---------------------------------------------------------------------
+# Маршруты для визуализации результатов
+# ---------------------------------------------------------------------
+
 def fetch_data():
     """
     Извлекает тексты вопросов и вычисляет среднее значение ответов для каждого вопроса.
     Предполагается, что в таблице Question текст хранится в поле 'text',
-    а в Answer – выбранные варианты как строка.
+    а в таблице Answer – выбранные варианты как строка.
     """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -221,9 +233,9 @@ def fetch_data():
 def create_chart(labels, values):
     """
     Создаёт фигуру с тремя типами диаграмм:
-    – столбчатая диаграмма,
-    – паутинная (spider) диаграмма,
-    – радиальная диаграмма.
+      – столбчатая диаграмма,
+      – паутинная диаграмма,
+      – радиальная диаграмма.
     """
     fig, axs = plt.subplots(1, 3, figsize=(9, 3))
     
@@ -274,13 +286,6 @@ def chart_png():
     plt.close(fig)
     buf.seek(0)
     return Response(buf.getvalue(), mimetype='image/png')
-
-@app.route('/survey/<int:survey_id>/results')
-def view_results(survey_id):
-    """Страница просмотра результатов опроса."""
-    survey = Survey.query.get_or_404(survey_id)
-    responses = SurveyResponse.query.filter_by(survey_id=survey.id).all()
-    return render_template('view_results.html', survey=survey, responses=responses)
 
 # ---------------------------------------------------------------------
 # Запуск приложения
