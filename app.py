@@ -44,6 +44,22 @@ login_manager.login_view = 'login'
 # Модели БД
 # -----------------------------
 
+# Ассоциация для связи группы и пользователей (многие ко многим)
+group_members = db.Table('group_members',
+    db.Column('group_id', db.Integer, db.ForeignKey('group.id'), primary_key=True),
+    db.Column('user_id', db.Integer, db.ForeignKey('user.id'), primary_key=True)
+)
+
+class Group(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    creator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    # Связь с создателем (пользователем)
+    creator = db.relationship('User', backref='created_groups')
+    # Связь с участниками группы через вспомогательную таблицу
+    members = db.relationship('User', secondary=group_members, backref=db.backref('groups', lazy='dynamic'))
+
+
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(150), unique=True, nullable=False)  # Используем email для входа
@@ -62,13 +78,21 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 
+# Вспомогательная таблица для связи Survey и Group (многие ко многим)
+survey_groups = db.Table('survey_groups',
+    db.Column('survey_id', db.Integer, db.ForeignKey('survey.id'), primary_key=True),
+    db.Column('group_id', db.Integer, db.ForeignKey('group.id'), primary_key=True)
+)
+
 class Survey(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
-    creator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # Новый столбец
+    creator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     creator = db.relationship('User', backref='surveys')
     questions = db.relationship('Question', backref='survey', cascade="all, delete", lazy=True)
     responses = db.relationship('SurveyResponse', backref='survey', cascade="all, delete", lazy=True)
+    # Связь с группами, которым доступен этот опрос
+    groups = db.relationship('Group', secondary=survey_groups, backref=db.backref('surveys', lazy='dynamic'))
 
 
 class Question(db.Model):
@@ -162,23 +186,80 @@ def logout():
 @app.route('/')
 @login_required
 def survey_index():
-    surveys = Survey.query.filter_by(creator_id=current_user.id).all()
-    return render_template('index.html', surveys=surveys)
+    # 1. Опросы, созданные текущим пользователем (созданные мной)
+    created_surveys = Survey.query.filter_by(creator_id=current_user.id).all()
 
+    # 2. Опросы, которые прошёл текущий пользователь (на основании записей в SurveyResponse)
+    responses = SurveyResponse.query.filter_by(email=current_user.email).all()
+    taken_survey_ids = {response.survey_id for response in responses}
+    taken_surveys = Survey.query.filter(Survey.id.in_(taken_survey_ids)).all() if taken_survey_ids else []
+
+    # 3. Опросы, назначенные текущему пользователю (через группы), но еще не пройденные
+    user_group_ids = [group.id for group in current_user.groups]
+    if user_group_ids:
+        assigned_surveys = (Survey.query
+                            .join(Survey.groups)
+                            .filter(
+                                Group.id.in_(user_group_ids),
+                                Survey.creator_id != current_user.id,
+                                ~Survey.id.in_(taken_survey_ids)  # Исключаем опросы, которые пользователь уже прошёл
+                            )
+                            .distinct()
+                            .all())
+    else:
+        assigned_surveys = []
+
+    return render_template('index.html',
+                           created_surveys=created_surveys,
+                           assigned_surveys=assigned_surveys,
+                           taken_surveys=taken_surveys)
 
 
 from flask_login import login_required, current_user
+
+
+@app.route('/group/new', methods=['GET', 'POST'])
+@login_required
+def create_group():
+    if request.method == 'POST':
+        group_name = request.form.get('group_name').strip()
+        if not group_name:
+            return "Ошибка: Необходимо указать название группы.", 400
+
+        # Проверяем, существует ли уже группа с таким именем
+        existing_group = Group.query.filter_by(name=group_name).first()
+        if existing_group:
+            return f"Ошибка: Группа с именем '{group_name}' уже существует.", 400
+
+        selected_user_ids = request.form.getlist('user_ids')
+        
+        group = Group(name=group_name, creator=current_user)
+        for user_id in selected_user_ids:
+            user = User.query.get(user_id)
+            if user and user not in group.members:
+                group.members.append(user)
+        db.session.add(group)
+        db.session.commit()
+        return redirect(url_for('survey_index'))
+    
+    # При GET-запросе выводим список всех зарегистрированных пользователей
+    users = User.query.all()
+    return render_template('group_editor.html', users=users)
+
 
 @app.route('/survey/new', methods=['GET', 'POST'])
 @login_required
 def create_survey():
     if request.method == 'POST':
         title = request.form.get("title")
-        # Создаём опрос и указываем его создателя
+        if not title:
+            return "Ошибка: необходимо указать название опроса", 400
+
+        # Создаем опрос и задаем автора
         survey = Survey(title=title, creator=current_user)
         db.session.add(survey)
         
-        # Обрабатываем вопросы по индексам
+        # Обрабатываем вопросы (пример обработки вопроса и вариантов ответов)
         i = 0
         while f"questions[{i}][text]" in request.form:
             q_text = request.form.get(f"questions[{i}][text]")
@@ -193,29 +274,37 @@ def create_survey():
                 survey=survey
             )
             db.session.add(question)
-            
             for opt_text in options:
                 if opt_text.strip():
                     option = Option(text=opt_text, question=question)
                     db.session.add(option)
             i += 1
+
+        # Обрабатываем выбранные группы
+        group_ids = request.form.getlist("survey_groups")
+        # Если список group_ids пуст, то к опросу не привязывается ни одна группа:
+        for group_id in group_ids:
+            group = Group.query.get(group_id)
+            if group:
+                survey.groups.append(group)
         
         db.session.commit()
         return redirect(url_for('survey_index'))
     
-    return render_template('survey_editor.html')
+    # При GET-запросе передаем в шаблон список всех групп для выбора
+    groups = Group.query.all()
+    return render_template('survey_editor.html', groups=groups)
 
 @app.route('/survey/delete/<int:survey_id>', methods=['POST'])
 @login_required
 def delete_survey(survey_id):
     survey = Survey.query.get_or_404(survey_id)
-    # Только создатель опроса может удалить его
+    # Проверьте, что текущий пользователь является создателем опроса
     if survey.creator != current_user:
         abort(403, description="Удалять опрос может только его создатель")
     db.session.delete(survey)
     db.session.commit()
     return redirect(url_for('survey_index'))
-
 
 @app.route('/survey/<int:survey_id>/take', methods=['GET', 'POST'])
 @login_required
