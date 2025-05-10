@@ -61,15 +61,18 @@
 
     <script>
         let questionCount = 0;
+
         function addQuestion() {
             const template = document.getElementById("question_template").innerHTML;
             const newHtml = template.replace(/__index__/g, questionCount).replace(/__number__/g, questionCount + 1);
             const container = document.getElementById("questions_container");
             const wrapper = document.createElement("div");
             wrapper.innerHTML = newHtml;
+            wrapper.firstElementChild.setAttribute("data-index", questionCount);
             container.appendChild(wrapper.firstElementChild);
             questionCount++;
         }
+
         function addOption(button) {
             const questionBlock = button.closest(".question-block");
             const optionsDiv = questionBlock.querySelector(".options");
@@ -80,10 +83,27 @@
             newOptionDiv.innerHTML = `<input type="text" name="questions[${index}][options][]" placeholder="Вариант ${optionCount}" required>`;
             optionsDiv.appendChild(newOptionDiv);
         }
+
         function removeQuestion(button) {
             const questionBlock = button.closest(".question-block");
             questionBlock.remove();
+            updateQuestionNumbers(); // После удаления обновляем номера вопросов
+        }
+
+        function updateQuestionNumbers() {
+            const questionBlocks = document.querySelectorAll(".question-block");
+            questionCount = questionBlocks.length; // Обновляем общий счётчик
+            questionBlocks.forEach((block, index) => {
+                block.setAttribute("data-index", index);
+                block.querySelector("h3").innerText = `Вопрос ${index + 1}`;
+
+                const inputs = block.querySelectorAll("[name^='questions']");
+                inputs.forEach(input => {
+                    input.name = input.name.replace(/\d+/, index);
+                });
+            });
         }
     </script>
+
 </body>
 </html>
