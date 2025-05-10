@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Создание группы людей</title>
+    <style>
+         body { font-family: Arial, sans-serif; margin: 20px; }
+         form { max-width: 600px; margin: auto; }
+         input[type="text"] { width: 100%; padding: 8px; margin-bottom: 10px; }
+         label { display: block; margin-bottom: 5px; }
+         .user-list { margin: 10px 0; border: 1px solid #ccc; padding: 10px; }
+         .user-item { margin-bottom: 5px; }
+         button { padding: 8px 16px; }
+    </style>
+</head>
+<body>
+    <h1>Создание группы людей</h1>
+    <form method="POST">
+         <label for="group_name">Название группы:</label>
+         <input type="text" id="group_name" name="group_name" required>
+         
+         <h2>Выберите участников</h2>
+         <div class="user-list">
+            {% for user in users %}
+                <div class="user-item">
+                    <input type="checkbox" id="user_{{ user.id }}" name="user_ids" value="{{ user.id }}">
+                    <label for="user_{{ user.id }}">{{ user.username }} ({{ user.email }})</label>
+                </div>
+            {% endfor %}
+         </div>
+         <button type="submit">Создать группу</button>
+    </form>
+</body>
+</html>

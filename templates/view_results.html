@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ru">
+<h1>Результаты опроса «{{ survey.title }}»</h1>
+
+<img src="{{ url_for('chart_png') }}"
+    class="small-chart"
+    alt="Средние значения по вопросам">
+<head>
+    <meta charset="UTF-8">
+    <title>Результаты опроса: {{ survey.title }}</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 8px; border: 1px solid #ccc; vertical-align: top; }
+        .chart-container { text-align: center; margin-top: 20px; }
+        .chart-container img { max-width: 600px; width: 100%; height: auto; }
+        ul { margin: 0; padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <h1>Результаты опроса: {{ survey.title }}</h1>
+
+    <!-- Встраиваем диаграмму -->
+    <div class="chart-container">
+        <h2>Диаграмма ответов</h2>
+        <img src="{{ url_for('chart_png') }}" alt="Диаграмма результатов">
+    </div>
+
+    <h2>Ответы респондентов</h2>
+    {% if responses %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Респондент</th>
+                    <th>Email</th>
+                    <th>Ответы</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for response in responses %}
+                    <tr>
+                        <td>{{ response.full_name }}</td>
+                        <td>{{ response.email }}</td>
+                        <td>
+                            <ul>
+                                {% for answer in response.answers %}
+                                    <li>
+                                        <strong>{{ answer.question.text }}:</strong>
+                                        {% if answer.selected_options %}
+                                            {# разберём строку "1,3,5" в список ["1","3","5"] #}
+                                            {% set sel_ids = answer.selected_options.split(',') %}
+                                            {# пройдём по всем вариантам вопроса и выведем только выбранные #}
+                                            {% for option in answer.question.options %}
+                                                {% if option.id|string in sel_ids %}
+                                                    {{ option.text }}{% if not loop.last %}, {% endif %}
+                                                {% endif %}
+                                            {% endfor %}
+                                        {% else %}
+                                            Нет ответа
+                                        {% endif %}
+                                        {% if answer.comment %}
+                                            <br><em>Комментарий:</em> {{ answer.comment }}
+                                        {% endif %}
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Нет ответов.</p>
+    {% endif %}
+</body>
+</html>
