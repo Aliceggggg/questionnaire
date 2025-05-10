@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Пройти опрос: {{ survey.title }}</title>
+    <style>
+         body { font-family: Arial, sans-serif; margin: 20px; }
+         .question { margin-bottom: 20px; }
+         .option { margin-left: 20px; }
+    </style>
+</head>
+<body>
+    <h1>{{ survey.title }}</h1>
+    <form method="POST">
+         {% for question in survey.questions %}
+           <div class="question">
+               <p><strong>{{ question.text }}</strong></p>
+               {% if question.multiple_selection %}
+                   {% for option in question.options %}
+                       <div class="option">
+                           <input type="checkbox" name="question_{{ question.id }}_options" value="{{ option.id }}">
+                           <label>{{ option.text }}</label>
+                       </div>
+                   {% endfor %}
+               {% else %}
+                   {% for option in question.options %}
+                       <div class="option">
+                           <input type="radio" name="question_{{ question.id }}_options" value="{{ option.id }}">
+                           <label>{{ option.text }}</label>
+                       </div>
+                   {% endfor %}
+               {% endif %}
+               {% if question.allow_comments %}
+                   <div>
+                       <label>Комментарий:</label>
+                       <input type="text" name="question_{{ question.id }}_comment">
+                   </div>
+               {% endif %}
+           </div>
+         {% endfor %}
+         <button type="submit">Завершить опрос</button>
+    </form>
+</body>
+</html>

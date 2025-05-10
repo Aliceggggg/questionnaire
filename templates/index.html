@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Список опросов</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        a { text-decoration: none; color: #007BFF; }
+        form { display: inline; }
+        button { margin-left: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Список опросов</h1>
+    <a href="{{ url_for('create_survey') }}">Создать новый опрос</a>
+    <hr>
+    {% if surveys %}
+        {% for survey in surveys %}
+            <div>
+                <h2>{{ survey.title }}
+                    <!-- Форма удаления опроса -->
+                    <form action="{{ url_for('delete_survey', survey_id=survey.id) }}" method="POST" onsubmit="return confirm('Вы уверены, что хотите удалить опрос?');">
+                        <button type="submit">Удалить опрос</button>
+                    </form>
+                </h2>
+                
+                <!-- Добавляем отображение ссылки для прохождения -->
+                <p>
+                    <strong>Ссылка для прохождения:</strong>
+                    <a href="{{ url_for('take_survey', survey_id=survey.id, _external=True) }}" target="_blank">
+                        {{ url_for('take_survey', survey_id=survey.id, _external=True) }}
+                    </a>
+                </p>
+                
+                {% for question in survey.questions %}
+                    <div style="margin-left: 20px;">
+                        <p><strong>{{ question.text }}</strong></p>
+                        <p>Тип выбора: {% if question.multiple_selection %}Множественный выбор{% else %}Одиночный выбор{% endif %}</p>
+                        <p>Комментарии: {% if question.allow_comments %}Разрешены{% else %}Запрещены{% endif %}</p>
+                        <ul>
+                            {% for option in question.options %}
+                                <li>{{ option.text }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                {% endfor %}
+            </div>
+            <hr>
+        {% endfor %}
+    {% else %}
+        <p>Опросы отсутствуют. Создайте новый опрос.</p>
+    {% endif %}
+</body>
+</html>
