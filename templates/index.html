@@ -2,13 +2,14 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Список опросов</title>
+    <title>Мои опросы</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; }
+        .survey-section { margin-bottom: 40px; }
+        .survey-item { margin-bottom: 15px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
+        .user-info { float: right; }
         a { text-decoration: none; color: #007BFF; }
         form { display: inline; }
-        button { margin-left: 10px; }
-        .user-info { float: right; }
     </style>
 </head>
 <body>
@@ -21,38 +22,94 @@
             <a href="{{ url_for('register') }}">Зарегистрироваться</a>
         {% endif %}
     </div>
-    <h1>Список опросов</h1>
-    <a href="{{ url_for('create_survey') }}">Создать новый опрос</a>
+
+    <h1>Мои опросы</h1>
+    <p>
+      <a href="{{ url_for('create_survey') }}">Создать новый опрос</a> |
+      <a href="{{ url_for('create_group') }}">Создать группу людей</a>
+    </p>
     <hr>
-    {% if surveys %}
-        {% for survey in surveys %}
-            <div>
-                <h2>{{ survey.title }}
-                    {% if current_user.is_authenticated and survey.creator.id == current_user.id %}
-                        <form action="{{ url_for('delete_survey', survey_id=survey.id) }}" method="POST" onsubmit="return confirm('Вы уверены, что хотите удалить опрос?');">
-                            <button type="submit">Удалить опрос</button>
-                        </form>
-                    {% endif %}
-                </h2>
-
-                <p><strong>Ссылка для прохождения:</strong>
-                    <a href="{{ url_for('take_survey', survey_id=survey.id, _external=True) }}" target="_blank">
-                        {{ url_for('take_survey', survey_id=survey.id, _external=True) }}
-                    </a>
-                </p>
-
-                <p>
-                    <strong>Просмотр результатов:</strong>
-                    <a href="{{ url_for('view_results', survey_id=survey.id) }}" target="_blank">
-                        {{ url_for('view_results', survey_id=survey.id) }}
-                    </a>
-                </p>
-
-            </div>
-            <hr>
-        {% endfor %}
-    {% else %}
-        <p>Опросы отсутствуют. Создайте новый опрос.</p>
-    {% endif %}
+    
+    <div class="survey-section">
+        <h2>Опросы, созданные мной</h2>
+        {% if created_surveys %}
+            {% for survey in created_surveys %}
+                <div class="survey-item">
+                    <h3>{{ survey.title }}</h3>
+                    <p>
+                        <strong>Ссылка для прохождения:</strong>
+                        <a href="{{ url_for('take_survey', survey_id=survey.id, _external=True) }}" target="_blank">
+                            {{ url_for('take_survey', survey_id=survey.id, _external=True) }}
+                        </a>
+                    </p>
+                    <p>
+                        <strong>Просмотр результатов:</strong>
+                        <a href="{{ url_for('view_results', survey_id=survey.id) }}" target="_blank">
+                            {{ url_for('view_results', survey_id=survey.id) }}
+                        </a>
+                    </p>
+                    <form action="{{ url_for('delete_survey', survey_id=survey.id) }}" method="POST" onsubmit="return confirm('Вы уверены, что хотите удалить опрос?');">
+                        <button type="submit">Удалить опрос</button>
+                    </form>
+                </div>
+                <hr>
+            {% endfor %}
+        {% else %}
+            <p>Вы пока не создали ни одного опроса.</p>
+        {% endif %}
+    </div>
+    
+    <div class="survey-section">
+        <h2>Опросы, назначенные мне</h2>
+        {% if assigned_surveys %}
+            {% for survey in assigned_surveys %}
+                <div class="survey-item">
+                    <h3>{{ survey.title }}</h3>
+                    <p>
+                        <strong>Ссылка для прохождения:</strong>
+                        <a href="{{ url_for('take_survey', survey_id=survey.id, _external=True) }}" target="_blank">
+                            {{ url_for('take_survey', survey_id=survey.id, _external=True) }}
+                        </a>
+                    </p>
+                    <p>
+                        <strong>Просмотр результатов:</strong>
+                        <a href="{{ url_for('view_results', survey_id=survey.id) }}" target="_blank">
+                            {{ url_for('view_results', survey_id=survey.id) }}
+                        </a>
+                    </p>
+                </div>
+                <hr>
+            {% endfor %}
+        {% else %}
+            <p>Оппонентов, назначенных через группы, пока нет.</p>
+        {% endif %}
+    </div>
+    
+    <div class="survey-section">
+        <h2>Опросы, которые я прошёл</h2>
+        {% if taken_surveys %}
+            {% for survey in taken_surveys %}
+                <div class="survey-item">
+                    <h3>{{ survey.title }}</h3>
+                    <p>
+                        <strong>Ссылка для прохождения:</strong>
+                        <a href="{{ url_for('take_survey', survey_id=survey.id, _external=True) }}" target="_blank">
+                            {{ url_for('take_survey', survey_id=survey.id, _external=True) }}
+                        </a>
+                    </p>
+                    <p>
+                        <strong>Просмотр результатов:</strong>
+                        <a href="{{ url_for('view_results', survey_id=survey.id) }}" target="_blank">
+                            {{ url_for('view_results', survey_id=survey.id) }}
+                        </a>
+                    </p>
+                </div>
+                <hr>
+            {% endfor %}
+        {% else %}
+            <p>Вы еще не прошли ни один опрос.</p>
+        {% endif %}
+    </div>
+    
 </body>
 </html>
