@@ -18,30 +18,24 @@
         {% for survey in surveys %}
             <div>
                 <h2>{{ survey.title }}
-                    <!-- Кнопка удаления опроса -->
                     <form action="{{ url_for('delete_survey', survey_id=survey.id) }}" method="POST" onsubmit="return confirm('Вы уверены, что хотите удалить опрос?');">
                         <button type="submit">Удалить опрос</button>
                     </form>
                 </h2>
-                <!-- Вывод ссылки для прохождения -->
-                <p>
-                    <strong>Ссылка для прохождения:</strong>
+
+                <p><strong>Ссылка для прохождения:</strong>
                     <a href="{{ url_for('take_survey', survey_id=survey.id, _external=True) }}" target="_blank">
                         {{ url_for('take_survey', survey_id=survey.id, _external=True) }}
                     </a>
                 </p>
-                {% for question in survey.questions %}
-                    <div style="margin-left: 20px;">
-                        <p><strong>{{ question.text }}</strong></p>
-                        <p>Тип выбора: {% if question.multiple_selection %}Множественный выбор{% else %}Одиночный выбор{% endif %}</p>
-                        <p>Комментарии: {% if question.allow_comments %}Разрешены{% else %}Запрещены{% endif %}</p>
-                        <ul>
-                        {% for option in question.options %}
-                            <li>{{ option.text }}</li>
-                        {% endfor %}
-                        </ul>
-                    </div>
-                {% endfor %}
+
+                <p>
+                    <strong>Просмотр результатов:</strong>
+                    <a href="{{ url_for('view_results', survey_id=survey.id) }}" target="_blank">
+                        {{ url_for('view_results', survey_id=survey.id) }}
+                    </a>
+                </p>
+
             </div>
             <hr>
         {% endfor %}

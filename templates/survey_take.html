@@ -26,7 +26,7 @@
 <body>
     <h1>{{ survey.title }}</h1>
     <form method="POST">
-         <!-- Блок с обязательными данными -->
+         <!-- Обязательные поля -->
          <div class="required-fields">
              <h3>Ваши данные</h3>
              <label for="full_name">ФИО:</label>
@@ -36,7 +36,7 @@
              <input type="email" id="email" name="email" required>
          </div>
          
-         <!-- Блок с вопросами опроса -->
+         <!-- Вопросы -->
          {% for question in survey.questions %}
            <div class="question">
                <p><strong>{{ question.text }}</strong></p>

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Результаты опроса</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 8px; border: 1px solid #ccc; }
+    </style>
+</head>
+<body>
+    <h1>Результаты опроса: {{ survey.title }}</h1>
+
+    {% if responses %}
+        <table>
+            <tr>
+                <th>Респондент</th>
+                <th>Email</th>
+                <th>Ответы</th>
+            </tr>
+            {% for response in responses %}
+                <tr>
+                    <td>{{ response.full_name }}</td>
+                    <td>{{ response.email }}</td>
+                    <td>
+                        <ul>
+                            {% for answer in response.answers %}
+                                <li>
+                                    {{ answer.question.text }}:
+                                    {% if answer.selected_options %}
+                                        {{ answer.selected_options }}
+                                    {% else %}
+                                        Нет ответа
+                                    {% endif %}
+                                    {% if answer.comment %}
+                                        <br>Комментарий: {{ answer.comment }}
+                                    {% endif %}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </td>
+                </tr>
+            {% endfor %}
+        </table>
+    {% else %}
+        <p>Ещё никто не прошёл этот опрос.</p>
+    {% endif %}
+</body>
+</html>
