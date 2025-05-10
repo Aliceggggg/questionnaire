@@ -1,27 +1,43 @@
 import os
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, abort
+from flask import (
+    Flask,
+    render_template,
+    render_template_string,
+    request,
+    redirect,
+    url_for,
+    abort,
+    Response
+)
 from flask_sqlalchemy import SQLAlchemy
+import matplotlib.pyplot as plt
+import numpy as np
+import io
+import sqlite3
 
-# Инициализируем Flask с использованием каталога instance
+# ---------------------------------------------------------------------
+# Инициализация приложения и настройка БД
+# ---------------------------------------------------------------------
+
 app = Flask(__name__, instance_relative_config=True)
 
-# Создаем каталог instance, если его ещё нет
+# Создаём каталог instance (если его ещё нет)
 try:
     os.makedirs(app.instance_path)
 except OSError:
     pass
 
-# Настраиваем подключение к базе данных в каталоге instance
-db_path = os.path.join(app.instance_path, 'survey.db')
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+# Путь к файлу базы данных – размещаем его в каталоге instance
+DB_PATH = os.path.join(app.instance_path, 'survey.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# ----------------------------
-# Модели для опроса
-# ----------------------------
+# ---------------------------------------------------------------------
+# Определение моделей
+# ---------------------------------------------------------------------
 
 class Survey(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -42,14 +58,10 @@ class Option(db.Model):
     text = db.Column(db.String(300), nullable=False)
     question_id = db.Column(db.Integer, db.ForeignKey('question.id'), nullable=False)
 
-# ----------------------------
-# Модели для прохождения опроса
-# ----------------------------
-
 class SurveyResponse(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     survey_id = db.Column(db.Integer, db.ForeignKey('survey.id'), nullable=False)
-    full_name = db.Column(db.String(200), nullable=False)  # Одно поле для ввода ФИО
+    full_name = db.Column(db.String(200), nullable=False)  # Одно поле для ФИО
     email = db.Column(db.String(100), nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     answers = db.relationship('Answer', backref='survey_response', cascade="all, delete", lazy=True)
@@ -58,34 +70,36 @@ class Answer(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     question_id = db.Column(db.Integer, db.ForeignKey('question.id'), nullable=False)
     survey_response_id = db.Column(db.Integer, db.ForeignKey('survey_response.id'), nullable=False)
-    # Хранение выбранных вариантов через запятую (например, "1,3")
+    # Храним выбранные варианты через запятую (например, "1,3")
     selected_options = db.Column(db.String(500), nullable=True)
     comment = db.Column(db.Text, nullable=True)
 
-# ----------------------------
-# Маршруты приложения
-# ----------------------------
+# ---------------------------------------------------------------------
+# Маршруты для управления опросами
+# ---------------------------------------------------------------------
 
-# Главная страница — список опросов (с отображением ссылки для прохождения и кнопкой удаления)
 @app.route('/')
-def index():
+def survey_index():
+    """Главная страница – список опросов с ссылками и кнопками удаления."""
     surveys = Survey.query.all()
     return render_template('index.html', surveys=surveys)
 
-# Страница для создания нового опроса
 @app.route('/survey/new', methods=['GET', 'POST'])
 def create_survey():
+    """Страница создания нового опроса с динамическим добавлением вопросов."""
     if request.method == 'POST':
         title = request.form.get("title")
         survey = Survey(title=title)
         db.session.add(survey)
-        # Обрабатываем вопросы: поля формы именуются как questions[индекс][...]
+        
+        # Обрабатываем вопросы по индексам
         i = 0
         while f"questions[{i}][text]" in request.form:
             q_text = request.form.get(f"questions[{i}][text]")
-            allow_comments = True if request.form.get(f"questions[{i}][allow_comments]") else False
-            multiple_selection = True if request.form.get(f"questions[{i}][multiple_selection]") else False
+            allow_comments = bool(request.form.get(f"questions[{i}][allow_comments]"))
+            multiple_selection = bool(request.form.get(f"questions[{i}][multiple_selection]"))
             options = request.form.getlist(f"questions[{i}][options][]")
+            
             question = Question(
                 text=q_text,
                 allow_comments=allow_comments,
@@ -93,26 +107,29 @@ def create_survey():
                 survey=survey
             )
             db.session.add(question)
+            
             for opt_text in options:
                 if opt_text.strip():
                     option = Option(text=opt_text, question=question)
                     db.session.add(option)
             i += 1
+        
         db.session.commit()
-        return redirect(url_for('index'))
+        return redirect(url_for('survey_index'))
+    
     return render_template('survey_editor.html')
 
-# Маршрут для удаления опроса
 @app.route('/survey/delete/<int:survey_id>', methods=['POST'])
 def delete_survey(survey_id):
+    """Маршрут для удаления опроса."""
     survey = Survey.query.get_or_404(survey_id)
     db.session.delete(survey)
     db.session.commit()
-    return redirect(url_for('index'))
+    return redirect(url_for('survey_index'))
 
-# Маршрут для прохождения опроса (с обязательными полями ФИО и Email)
 @app.route('/survey/<int:survey_id>/take', methods=['GET', 'POST'])
 def take_survey(survey_id):
+    """Страница прохождения опроса, с обязательными полями для ФИО и Email."""
     survey = Survey.query.get_or_404(survey_id)
     if request.method == 'POST':
         full_name = request.form.get('full_name')
@@ -121,16 +138,15 @@ def take_survey(survey_id):
             abort(400, description="Обязательные поля не заполнены.")
         response = SurveyResponse(survey_id=survey.id, full_name=full_name, email=email)
         db.session.add(response)
-        # Обрабатываем ответы на вопросы
+        
+        # Обработка ответов для каждого вопроса
         for question in survey.questions:
             key = f'question_{question.id}_options'
-            selected_options = []
             if question.multiple_selection:
                 selected_options = request.form.getlist(key)
             else:
-                option = request.form.get(key)
-                if option:
-                    selected_options = [option]
+                selected_options = [request.form.get(key)]
+            selected_options = [opt for opt in selected_options if opt]
             comment = request.form.get(f'question_{question.id}_comment')
             answer = Answer(
                 question_id=question.id,
@@ -139,17 +155,138 @@ def take_survey(survey_id):
                 comment=comment if comment else None
             )
             db.session.add(answer)
+        
         db.session.commit()
         return redirect(url_for('thank_you'))
+    
     return render_template('survey_take.html', survey=survey)
 
-# Страница благодарности после прохождения опроса
 @app.route('/thank-you')
 def thank_you():
+    """Страница благодарности после прохождения опроса."""
     return "<h1>Спасибо за участие в опросе!</h1>"
+
+# ---------------------------------------------------------------------
+# Маршруты для визуализации результатов
+# ---------------------------------------------------------------------
+
+@app.route('/results')
+def results():
+    """Страница с графиками, отображающая результаты опроса."""
+    return render_template_string("""
+    <!DOCTYPE html>
+    <html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <title>Результаты опроса</title>
+        <style>
+            .small-chart { max-width: 600px; width: 100%; height: auto; }
+        </style>
+    </head>
+    <body>
+        <h1>Результаты опроса</h1>
+        <img src="/chart.png" class="small-chart" alt="Графики">
+    </body>
+    </html>
+    """)
+
+def fetch_data():
+    """
+    Извлекает тексты вопросов и вычисляет среднее значение ответов для каждого вопроса.
+    Предполагается, что в таблице Question текст хранится в поле 'text',
+    а в Answer – выбранные варианты как строка.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, text FROM question ORDER BY id;")
+    questions = cursor.fetchall()  # [(id, text), ...]
+    labels = [text for _, text in questions]
+    values = []
+    
+    for qid, _ in questions:
+        cursor.execute("SELECT selected_options FROM answer WHERE question_id = ?", (qid,))
+        rows = cursor.fetchall()
+        nums = []
+        for (sel,) in rows:
+            try:
+                nums.append(float(sel))
+            except (ValueError, TypeError):
+                continue
+        avg = sum(nums) / len(nums) if nums else 0
+        values.append(avg)
+    
+    conn.close()
+    return labels, values
+
+def create_chart(labels, values):
+    """
+    Создаёт фигуру с тремя типами диаграмм:
+    – столбчатая диаграмма,
+    – паутинная (spider) диаграмма,
+    – радиальная диаграмма.
+    """
+    fig, axs = plt.subplots(1, 3, figsize=(9, 3))
+    
+    colors = plt.cm.coolwarm(np.linspace(0, 1, len(labels)))
+    axs[0].bar(labels, values, color=colors)
+    axs[0].set_title('Столбчатая диаграмма', fontsize=12, fontweight='bold')
+    axs[0].set_xlabel('Вопросы', fontsize=10)
+    axs[0].set_ylabel('Средний балл (1–10)', fontsize=10)
+    axs[0].set_ylim(0, 10)
+    for i, value in enumerate(values):
+        axs[0].text(i, value + 0.2, f'{value:.2f}', ha='center', fontsize=10)
+    
+    num_vars = len(labels)
+    angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
+    vals = values + values[:1]
+    angs = angles + angles[:1]
+    
+    # Паутинная диаграмма
+    ax1 = plt.subplot(1, 3, 2, projection='polar')
+    ax1.fill(angs, vals, color='lightblue', alpha=0.6)
+    ax1.plot(angs, vals, color='blue', linewidth=1.5)
+    ax1.set_yticklabels([])
+    ax1.set_xticks(angles)
+    ax1.set_xticklabels(labels, fontsize=8)
+    ax1.set_title('Паутинная диаграмма', fontsize=12)
+    ax1.grid(True, linestyle='--', alpha=0.5)
+    
+    # Радиальная диаграмма
+    ax2 = plt.subplot(1, 3, 3, projection='polar')
+    ax2.plot(angs, vals, linewidth=2)
+    ax2.fill(angs, vals, alpha=0.3)
+    ax2.set_yticklabels([])
+    ax2.set_xticks(angles)
+    ax2.set_xticklabels(labels, fontsize=8)
+    ax2.set_title('Радиальная диаграмма', fontsize=12)
+    ax2.grid(True, linestyle='--', alpha=0.5)
+    
+    plt.tight_layout()
+    return fig
+
+@app.route('/chart.png')
+def chart_png():
+    """Возвращает график в формате PNG."""
+    labels, values = fetch_data()
+    fig = create_chart(labels, values)
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=300)
+    plt.close(fig)
+    buf.seek(0)
+    return Response(buf.getvalue(), mimetype='image/png')
+
+@app.route('/survey/<int:survey_id>/results')
+def view_results(survey_id):
+    """Страница просмотра результатов опроса."""
+    survey = Survey.query.get_or_404(survey_id)
+    responses = SurveyResponse.query.filter_by(survey_id=survey.id).all()
+    return render_template('view_results.html', survey=survey, responses=responses)
+
+# ---------------------------------------------------------------------
+# Запуск приложения
+# ---------------------------------------------------------------------
 
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-    # Запускаем приложение так, чтобы оно было доступно в локальной сети
     app.run(debug=True, host='0.0.0.0', port=5000)
