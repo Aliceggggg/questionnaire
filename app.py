@@ -15,36 +15,61 @@ import matplotlib.pyplot as plt
 import numpy as np
 import io
 import sqlite3
-from sqlalchemy.orm import joinedload  # для предварительной загрузки связей, если понадобится
+from sqlalchemy.orm import joinedload
 
-# ---------------------------------------------------------------------
-# Инициализация приложения и настройка БД
-# ---------------------------------------------------------------------
+# Импортируем необходимые функции для работы с пользователями
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__, instance_relative_config=True)
+app.config['SECRET_KEY'] = 'ваш_секретный_ключ'  # Обязательно установите собственный секретный ключ
 
-# Создаём каталог instance (если его ещё нет)
 try:
     os.makedirs(app.instance_path)
 except OSError:
     pass
 
-# Путь к файлу базы данных – размещаем его в каталоге instance
 DB_PATH = os.path.join(app.instance_path, 'survey.db')
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# ---------------------------------------------------------------------
-# Определение моделей
-# ---------------------------------------------------------------------
+# Настройка Flask-Login
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
+
+
+# -----------------------------
+# Модели БД
+# -----------------------------
+
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(150), unique=True, nullable=False)  # Используем email для входа
+    username = db.Column(db.String(150), nullable=False)  # Имя необязательно
+    password_hash = db.Column(db.String(200), nullable=False)
+    
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+    
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
 
 class Survey(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
+    creator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # Новый столбец
+    creator = db.relationship('User', backref='surveys')
     questions = db.relationship('Question', backref='survey', cascade="all, delete", lazy=True)
     responses = db.relationship('SurveyResponse', backref='survey', cascade="all, delete", lazy=True)
+
 
 class Question(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -54,45 +79,103 @@ class Question(db.Model):
     survey_id = db.Column(db.Integer, db.ForeignKey('survey.id'), nullable=False)
     options = db.relationship('Option', backref='question', cascade="all, delete", lazy=True)
 
+
 class Option(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     text = db.Column(db.String(300), nullable=False)
     question_id = db.Column(db.Integer, db.ForeignKey('question.id'), nullable=False)
 
+
 class SurveyResponse(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     survey_id = db.Column(db.Integer, db.ForeignKey('survey.id'), nullable=False)
-    full_name = db.Column(db.String(200), nullable=False)  # Одно поле для ФИО
+    full_name = db.Column(db.String(200), nullable=False)  # Теперь заполняется из профиля пользователя
     email = db.Column(db.String(100), nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     answers = db.relationship('Answer', backref='survey_response', cascade="all, delete", lazy=True)
+
 
 class Answer(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     question_id = db.Column(db.Integer, db.ForeignKey('question.id'), nullable=False)
     survey_response_id = db.Column(db.Integer, db.ForeignKey('survey_response.id'), nullable=False)
-    # Храним выбранные варианты через запятую (например, "1,3")
-    selected_options = db.Column(db.String(500), nullable=True)
+    selected_options = db.Column(db.String(500), nullable=True)  # хранит ИД выбранных вариантов через запятую, например "1,3"
     comment = db.Column(db.Text, nullable=True)
-    # Добавляем отношение к модели Question
     question = db.relationship('Question', backref='answers')
 
-# ---------------------------------------------------------------------
-# Маршруты для управления опросами
-# ---------------------------------------------------------------------
+
+# -----------------------------
+# Маршруты для управления пользователями
+# -----------------------------
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form.get('username')  # Запрашиваем имя пользователя
+        email = request.form.get('email')  # Запрашиваем email
+        password = request.form.get('password')
+
+        # Проверяем, что имя и email не пустые
+        if not username or not email:
+            return "Имя пользователя и email обязательны."
+
+        # Проверяем, что email и имя уникальны
+        if User.query.filter((User.username == username) | (User.email == email)).first():
+            return "Пользователь с таким именем или email уже существует."
+
+        # Создаём нового пользователя
+        user = User(username=username, email=email)
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+
+        # Авторизуем пользователя сразу после регистрации
+        login_user(user)
+        return redirect(url_for('survey_index'))
+
+    return render_template('register.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        email = request.form.get('email')  # Запрашиваем email
+        password = request.form.get('password')
+        user = User.query.filter_by(email=email).first()  # Ищем пользователя по email
+        if user and user.check_password(password):
+            login_user(user)
+            return redirect(url_for('survey_index'))
+        else:
+            return "Неверный email или пароль."
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('survey_index'))
+
+
+# -----------------------------
+# Маршруты для опросов
+# -----------------------------
 
 @app.route('/')
+@login_required
 def survey_index():
-    """Главная страница – список опросов с ссылками и кнопками удаления."""
-    surveys = Survey.query.all()
+    surveys = Survey.query.filter_by(creator_id=current_user.id).all()
     return render_template('index.html', surveys=surveys)
 
+
+
+from flask_login import login_required, current_user
+
 @app.route('/survey/new', methods=['GET', 'POST'])
+@login_required
 def create_survey():
-    """Страница создания нового опроса с динамическим добавлением вопросов."""
     if request.method == 'POST':
         title = request.form.get("title")
-        survey = Survey(title=title)
+        # Создаём опрос и указываем его создателя
+        survey = Survey(title=title, creator=current_user)
         db.session.add(survey)
         
         # Обрабатываем вопросы по индексам
@@ -123,25 +206,27 @@ def create_survey():
     return render_template('survey_editor.html')
 
 @app.route('/survey/delete/<int:survey_id>', methods=['POST'])
+@login_required
 def delete_survey(survey_id):
-    """Маршрут для удаления опроса."""
     survey = Survey.query.get_or_404(survey_id)
+    # Только создатель опроса может удалить его
+    if survey.creator != current_user:
+        abort(403, description="Удалять опрос может только его создатель")
     db.session.delete(survey)
     db.session.commit()
     return redirect(url_for('survey_index'))
 
+
 @app.route('/survey/<int:survey_id>/take', methods=['GET', 'POST'])
+@login_required
 def take_survey(survey_id):
-    """Страница прохождения опроса, с обязательными полями для ФИО и Email."""
     survey = Survey.query.get_or_404(survey_id)
     if request.method == 'POST':
-        full_name = request.form.get('full_name')
-        email = request.form.get('email')
-        if not (full_name and email):
-            abort(400, description="Обязательные поля не заполнены.")
+        # Теперь поля ФИО и Email не запрашиваются у респондента, а берутся из профиля
+        full_name = current_user.username
+        email = current_user.email
         response = SurveyResponse(survey_id=survey.id, full_name=full_name, email=email)
         db.session.add(response)
-        
         # Обработка ответов для каждого вопроса
         for question in survey.questions:
             key = f'question_{question.id}_options'
@@ -158,20 +243,19 @@ def take_survey(survey_id):
                 comment=comment if comment else None
             )
             db.session.add(answer)
-        
         db.session.commit()
         return redirect(url_for('thank_you'))
     
     return render_template('survey_take.html', survey=survey)
 
+
 @app.route('/thank-you')
 def thank_you():
-    """Страница благодарности после прохождения опроса."""
     return "<h1>Спасибо за участие в опросе!</h1>"
+
 
 @app.route('/results')
 def results():
-    """Страница с графиками, отображающая результаты опроса."""
     return render_template_string("""
     <!DOCTYPE html>
     <html lang="ru">
@@ -189,25 +273,20 @@ def results():
     </html>
     """)
 
+
 @app.route('/survey/<int:survey_id>/results')
 def view_results(survey_id):
-    """Страница просмотра результатов опроса."""
     survey = Survey.query.get_or_404(survey_id)
     responses = SurveyResponse.query.filter_by(survey_id=survey.id).options(
         joinedload(SurveyResponse.answers).joinedload(Answer.question)
     ).all()
     return render_template('view_results.html', survey=survey, responses=responses)
 
-# ---------------------------------------------------------------------
+# -----------------------------
 # Маршруты для визуализации результатов
-# ---------------------------------------------------------------------
+# -----------------------------
 
 def fetch_data():
-    """
-    Извлекает тексты вопросов и вычисляет среднее значение ответов для каждого вопроса.
-    Предполагается, что в таблице Question текст хранится в поле 'text',
-    а в таблице Answer – выбранные варианты как строка.
-    """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT id, text FROM question ORDER BY id;")
@@ -231,12 +310,6 @@ def fetch_data():
     return labels, values
 
 def create_chart(labels, values):
-    """
-    Создаёт фигуру с тремя типами диаграмм:
-      – столбчатая диаграмма,
-      – паутинная диаграмма,
-      – радиальная диаграмма.
-    """
     fig, axs = plt.subplots(1, 3, figsize=(9, 3))
     
     colors = plt.cm.coolwarm(np.linspace(0, 1, len(labels)))
@@ -278,7 +351,6 @@ def create_chart(labels, values):
 
 @app.route('/chart.png')
 def chart_png():
-    """Возвращает график в формате PNG."""
     labels, values = fetch_data()
     fig = create_chart(labels, values)
     buf = io.BytesIO()
@@ -287,9 +359,10 @@ def chart_png():
     buf.seek(0)
     return Response(buf.getvalue(), mimetype='image/png')
 
-# ---------------------------------------------------------------------
+
+# -----------------------------
 # Запуск приложения
-# ---------------------------------------------------------------------
+# -----------------------------
 
 if __name__ == '__main__':
     with app.app_context():
